@@ -8,6 +8,7 @@ import os
 import random
 import requests
 import base64
+import zipfile
 
 # ============== تنظیمات ==============
 TARGET_URL = "https://greenlin.top/?ref=41446"
@@ -207,6 +208,24 @@ def get_next_email():
 # ===== بخش مدیریت پروکسی‌ها =====
 # =============================================
 
+def test_proxy(proxy_url):
+    """تست پروکسی قبل از استفاده"""
+    try:
+        proxies = {
+            "http": proxy_url,
+            "https": proxy_url
+        }
+        response = requests.get("https://httpbin.org/ip", proxies=proxies, timeout=10)
+        if response.status_code == 200:
+            print(f"✅ Proxy works! IP: {response.json()['origin']}")
+            return True
+        else:
+            print(f"❌ Proxy failed: {response.status_code}")
+            return False
+    except Exception as e:
+        print(f"❌ Proxy test failed: {e}")
+        return False
+
 def get_webshare_proxies(api_key, limit=20):
     """
     دریافت لیست پروکسی‌های فعال از Webshare
@@ -225,7 +244,13 @@ def get_webshare_proxies(api_key, limit=20):
             for proxy in data.get("results", []):
                 # ساخت آدرس پروکسی به فرمت: username:password@ip:port
                 proxy_url = f"http://{proxy['username']}:{proxy['password']}@{proxy['proxy_address']}:{proxy['port']}"
-                proxies.append(proxy_url)
+                proxies.append({
+                    'url': proxy_url,
+                    'host': proxy['proxy_address'],
+                    'port': proxy['port'],
+                    'username': proxy['username'],
+                    'password': proxy['password']
+                })
             
             print(f"✅ دریافت {len(proxies)} پروکسی از Webshare")
             return proxies
@@ -254,6 +279,66 @@ def save_used_proxy_to_github(proxy):
         if success:
             print(f"💾 Proxy saved to GitHub: {proxy[:50]}...")
 
+def create_proxy_extension(proxy_host, proxy_port, username, password):
+    """ساخت extension برای احراز هویت پروکسی"""
+    manifest_json = """
+    {
+        "version": "1.0.0",
+        "manifest_version": 2,
+        "name": "Chrome Proxy",
+        "permissions": [
+            "proxy",
+            "tabs",
+            "unlimitedStorage",
+            "storage",
+            "<all_urls>",
+            "webRequest",
+            "webRequestBlocking"
+        ],
+        "background": {
+            "scripts": ["background.js"]
+        },
+        "minimum_chrome_version": "22.0.0"
+    }
+    """
+    
+    background_js = f"""
+    var config = {{
+        mode: "fixed_servers",
+        rules: {{
+            singleProxy: {{
+                scheme: "http",
+                host: "{proxy_host}",
+                port: parseInt({proxy_port})
+            }},
+            bypassList: ["localhost"]
+        }}
+    }};
+    
+    chrome.proxy.settings.set({{value: config, scope: "regular"}}, function() {{}});
+    
+    function callbackFn(details) {{
+        return {{
+            authCredentials: {{
+                username: "{username}",
+                password: "{password}"
+            }}
+        }};
+    }}
+    
+    chrome.webRequest.onAuthRequired.addListener(
+        callbackFn,
+        {{urls: ["<all_urls>"]}},
+        ['blocking']
+    );
+    """
+    
+    plugin_file = 'proxy_auth_plugin.zip'
+    with zipfile.ZipFile(plugin_file, 'w') as zp:
+        zp.writestr("manifest.json", manifest_json)
+        zp.writestr("background.js", background_js)
+    return plugin_file
+
 def get_unused_proxy():
     # دریافت پروکسی‌های جدید از Webshare
     print("📡 Fetching proxies from Webshare...")
@@ -267,15 +352,25 @@ def get_unused_proxy():
     used_proxies = fetch_used_proxies_from_github()
     
     # فیلتر کردن پروکسی‌های استفاده نشده
-    unused_proxies = [p for p in all_proxies if p not in used_proxies]
+    unused_proxies = [p for p in all_proxies if p['url'] not in used_proxies]
     
     if not unused_proxies:
         print("⚠️ No unused proxies available. All proxies have been used!")
         return None
     
-    selected = random.choice(unused_proxies)
-    print(f"🔒 Selected unused proxy: {selected[:50]}...")
-    return selected
+    # تست پروکسی‌ها و انتخاب اولین پروکسی کارآمد
+    print("🔍 Testing proxies...")
+    for proxy in unused_proxies:
+        print(f"   Testing: {proxy['host']}:{proxy['port']}")
+        if test_proxy(proxy['url']):
+            print(f"✅ Selected working proxy: {proxy['host']}:{proxy['port']}")
+            return proxy
+        else:
+            print(f"   ❌ Proxy failed, trying next...")
+    
+    # اگر هیچ پروکسی کار نکرد، از اولین پروکسی استفاده کن
+    print("⚠️ No working proxies found, using first proxy anyway")
+    return unused_proxies[0]
 
 # =============================================
 # ===== بخش مدیریت پسوردها =====
@@ -380,7 +475,7 @@ print("=" * 70)
 print(f"📧 New Email: {SELECTED_EMAIL}")
 print(f"🔑 New Password: {SELECTED_PASSWORD}")
 if SELECTED_PROXY:
-    print(f"🔒 Selected Proxy: {SELECTED_PROXY[:50]}...")
+    print(f"🔒 Selected Proxy: {SELECTED_PROXY['host']}:{SELECTED_PROXY['port']}")
 else:
     print(f"🔓 No proxy selected (direct connection)")
 print("=" * 70)
@@ -397,9 +492,19 @@ options.add_experimental_option("excludeSwitches", ["enable-automation"])
 options.add_experimental_option('useAutomationExtension', False)
 options.binary_location = "/usr/bin/chromium-browser"
 
+# تنظیم پروکسی با احراز هویت
 if SELECTED_PROXY:
-    options.add_argument(f'--proxy-server={SELECTED_PROXY}')
-    print(f"🔧 Using proxy: {SELECTED_PROXY[:50]}...")
+    print(f"🔧 Setting up proxy: {SELECTED_PROXY['host']}:{SELECTED_PROXY['port']}")
+    
+    # ساخت extension برای احراز هویت
+    proxy_plugin = create_proxy_extension(
+        SELECTED_PROXY['host'],
+        SELECTED_PROXY['port'],
+        SELECTED_PROXY['username'],
+        SELECTED_PROXY['password']
+    )
+    options.add_extension(proxy_plugin)
+    print(f"✅ Proxy extension created and added")
 else:
     print("🔧 Using direct connection (no proxy)")
 
@@ -501,7 +606,7 @@ try:
     save_used_email_to_github(TEXT_2)
     save_used_password_to_github(TEXT_1)
     if SELECTED_PROXY:
-        save_used_proxy_to_github(SELECTED_PROXY)
+        save_used_proxy_to_github(SELECTED_PROXY['url'])
     
     screenshot_after_email = take_screenshot("after_email", timestamp)
     wait_seconds(4)
@@ -542,4 +647,8 @@ except Exception as e:
     
 finally:
     driver.quit()
+    # حذف فایل proxy extension بعد از اجرا
+    if os.path.exists("proxy_auth_plugin.zip"):
+        os.remove("proxy_auth_plugin.zip")
+        print("🧹 Cleaned up proxy extension file")
     print("👋 Browser closed")
