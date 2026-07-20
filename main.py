@@ -14,6 +14,16 @@ TARGET_URL = "https://greenlin.top/?ref=41446"
 BASE_EMAIL = "biwoboy583@meikeya.com"
 BASE_PASSWORD = "sdlfjksdldfskj"
 
+# ===== تنظیمات Webshare =====
+WEBSHARE_API_KEY = os.environ.get("WEBSHARE_API_KEY") or ""
+
+if not WEBSHARE_API_KEY:
+    print("=" * 70)
+    print("❌ ERROR: WEBSHARE_API_KEY environment variable is not set!")
+    print("=" * 70)
+    exit(1)
+print(f"✅ WEBSHARE_API_KEY is set (length: {len(WEBSHARE_API_KEY)})")
+
 # ===== نام فایل‌ها =====
 USED_EMAILS_FILE = "whroted.txt"
 PROXY_FILE = "used_proxies.txt"
@@ -197,6 +207,37 @@ def get_next_email():
 # ===== بخش مدیریت پروکسی‌ها =====
 # =============================================
 
+def get_webshare_proxies(api_key, limit=20):
+    """
+    دریافت لیست پروکسی‌های فعال از Webshare
+    """
+    try:
+        headers = {"Authorization": f"Token {api_key}"}
+        response = requests.get(
+            f"https://proxy.webshare.io/api/v2/proxy/list/?mode=direct&page=1&page_size={limit}",
+            headers=headers,
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            proxies = []
+            for proxy in data.get("results", []):
+                # ساخت آدرس پروکسی به فرمت: username:password@ip:port
+                proxy_url = f"http://{proxy['username']}:{proxy['password']}@{proxy['proxy_address']}:{proxy['port']}"
+                proxies.append(proxy_url)
+            
+            print(f"✅ دریافت {len(proxies)} پروکسی از Webshare")
+            return proxies
+        else:
+            print(f"❌ خطا در دریافت پروکسی: {response.status_code}")
+            if response.status_code == 401:
+                print("   ⚠️ API Key نامعتبر است! لطفاً کلید را بررسی کنید.")
+            return []
+    except Exception as e:
+        print(f"❌ خطا در دریافت پروکسی از Webshare: {e}")
+        return []
+
 def fetch_used_proxies_from_github():
     content, _ = get_file_from_github(GITHUB_PROXY_URL)
     if content:
@@ -211,24 +252,29 @@ def save_used_proxy_to_github(proxy):
     if proxy:
         success = append_to_github_file(GITHUB_PROXY_URL, proxy)
         if success:
-            print(f"💾 Proxy saved to GitHub: {proxy}")
+            print(f"💾 Proxy saved to GitHub: {proxy[:50]}...")
 
 def get_unused_proxy():
-    proxies = []
+    # دریافت پروکسی‌های جدید از Webshare
+    print("📡 Fetching proxies from Webshare...")
+    all_proxies = get_webshare_proxies(WEBSHARE_API_KEY, limit=20)
     
-    if not proxies:
-        print("ℹ️ No proxies configured, using direct connection")
+    if not all_proxies:
+        print("ℹ️ No proxies received from Webshare, using direct connection")
         return None
     
+    # دریافت پروکسی‌های استفاده شده از GitHub
     used_proxies = fetch_used_proxies_from_github()
-    unused_proxies = [p for p in proxies if p not in used_proxies]
+    
+    # فیلتر کردن پروکسی‌های استفاده نشده
+    unused_proxies = [p for p in all_proxies if p not in used_proxies]
     
     if not unused_proxies:
-        print("⚠️ No unused proxies available")
+        print("⚠️ No unused proxies available. All proxies have been used!")
         return None
     
     selected = random.choice(unused_proxies)
-    print(f"🔒 Selected unused proxy: {selected}")
+    print(f"🔒 Selected unused proxy: {selected[:50]}...")
     return selected
 
 # =============================================
@@ -325,7 +371,7 @@ if used_emails:
     print(f"   📌 Last used email: {used_emails[-1]}")
 print(f"   🔒 Used proxies: {len(used_proxies)}")
 if used_proxies:
-    print(f"   🔌 Last used proxy: {used_proxies[-1]}")
+    print(f"   🔌 Last used proxy: {used_proxies[-1][:50]}...")
 print(f"   🔑 Used passwords: {len(used_passwords)}")
 if used_passwords:
     print(f"   📌 Last used password: {used_passwords[-1]}")
@@ -333,6 +379,10 @@ if used_passwords:
 print("=" * 70)
 print(f"📧 New Email: {SELECTED_EMAIL}")
 print(f"🔑 New Password: {SELECTED_PASSWORD}")
+if SELECTED_PROXY:
+    print(f"🔒 Selected Proxy: {SELECTED_PROXY[:50]}...")
+else:
+    print(f"🔓 No proxy selected (direct connection)")
 print("=" * 70)
 
 # ====================================
@@ -349,6 +399,9 @@ options.binary_location = "/usr/bin/chromium-browser"
 
 if SELECTED_PROXY:
     options.add_argument(f'--proxy-server={SELECTED_PROXY}')
+    print(f"🔧 Using proxy: {SELECTED_PROXY[:50]}...")
+else:
+    print("🔧 Using direct connection (no proxy)")
 
 driver = webdriver.Chrome(options=options)
 driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
