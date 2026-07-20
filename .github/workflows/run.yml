@@ -1,12 +1,12 @@
 name: Click Test (Manual)
 
 on:
-  workflow_dispatch:  # فقط دستی - بدون schedule و push
+  workflow_dispatch:  # فقط دستی
 
 jobs:
   capture:
     runs-on: ubuntu-latest
-    timeout-minutes: 10  # محافظت در برابر اجرای طولانی
+    timeout-minutes: 10
 
     steps:
       - name: Checkout repository
@@ -38,6 +38,7 @@ jobs:
       - name: Run script
         env:
           MY_GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
+          WEBSHARE_API_KEY: ${{ secrets.WEBSHARE_API_KEY }}  # اضافه شد
         run: python main.py
 
       - name: Upload to Artifacts
@@ -48,7 +49,7 @@ jobs:
           path: |
             *.png
             *.txt
-          retention-days: 7  # کاهش زمان نگهداری
+          retention-days: 7
 
       - name: Commit and push files
         if: always()
