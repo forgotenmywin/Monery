@@ -23,7 +23,7 @@ PASSWORDS_FILE = "used_passwords.txt"
 # ===== اطلاعات GitHub =====
 # =============================================
 
-GITHUB_REPO = "forgotenmywin/money"
+GITHUB_REPO = "forgotenmywin/Monery"
 GITHUB_BRANCH = "main"
 GITHUB_TOKEN = os.environ.get("MY_GITHUB_TOKEN") or ""
 
