@@ -12,7 +12,7 @@ import zipfile
 
 # ============== تنظیمات ==============
 TARGET_URL = "https://greenlin.top/?ref=41446"
-BASE_EMAIL = "biwoboy583@meikeya.com"
+BASE_EMAIL = "melticekni@necub.com"
 BASE_PASSWORD = "sdlfjksdldfskj"
 
 # ===== تنظیمات Webshare =====
