@@ -31,8 +31,10 @@ CLICK_5_Y = 625
 CLICK_6_X = 771
 CLICK_6_Y = 865
 
-# ===== متن‌ها برای تایپ (به جز ایمیل که از API میاد) =====
-TEXT_1 = "kljwefowijowe"  # این متغیر استفاده نمیشه (می‌تونیم حذفش کنیم)
+CLICK_7_X = 1068  # کلیک جدید
+CLICK_7_Y = 926
+
+# ===== متن‌ها برای تایپ =====
 TEXT_3 = "kingking000"
 TEXT_4 = "kingking000"
 
@@ -213,24 +215,11 @@ def wait(seconds, label=""):
         print(f"⏳ Waiting {seconds} seconds ...")
     time.sleep(seconds)
 
-def take_screenshot(driver, name, timestamp, crop_area=None):
-    """گرفتن اسکرین‌شات کامل یا برش خورده"""
+def take_screenshot(driver, name, timestamp):
+    """گرفتن اسکرین‌شات کامل"""
     filename = f"{name}_{timestamp}.png"
-    
-    if crop_area:
-        driver.save_screenshot(filename)
-        try:
-            from PIL import Image
-            img = Image.open(filename)
-            cropped = img.crop(crop_area)
-            cropped.save(filename)
-            print(f"📸 Cropped screenshot saved: {filename}")
-        except ImportError:
-            print(f"📸 Full screenshot saved: {filename} (PIL not installed)")
-    else:
-        driver.save_screenshot(filename)
-        print(f"📸 Screenshot saved: {filename}")
-    
+    driver.save_screenshot(filename)
+    print(f"📸 Screenshot saved: {filename}")
     return filename
 
 # =============================================
@@ -276,14 +265,11 @@ try:
     click_at(driver, CLICK_1_X, CLICK_1_Y, "(First click)")
     wait(4, "after first click")
     
-    # ===== مرحله 4: کلیک دوم + تایپ =====
+    # ===== مرحله 4: کلیک دوم + تایپ پسورد =====
     print(f"\n🖱️ Step 2: Click at ({CLICK_2_X}, {CLICK_2_Y})")
     click_at(driver, CLICK_2_X, CLICK_2_Y, "(Click for password)")
     wait(1)
-    type_text(driver, TEXT_4, "(Password)")  # استفاده از TEXT_4 به جای TEXT_1
-    wait(1)
-    
-    take_screenshot(driver, f"typing_password", timestamp, crop_area=(800, 250, 1100, 350))
+    type_text(driver, TEXT_4, "(Password)")
     wait(1)
     
     # ===== مرحله 5: کلیک سوم + تایپ ایمیل =====
@@ -293,9 +279,6 @@ try:
     type_text(driver, EMAIL, "(Email - from Mail.tm)")
     wait(1)
     
-    take_screenshot(driver, f"typing_email", timestamp, crop_area=(800, 350, 1100, 450))
-    wait(1)
-    
     # ===== مرحله 6: کلیک چهارم + تایپ یوزرنیم =====
     print(f"\n🖱️ Step 4: Click at ({CLICK_4_X}, {CLICK_4_Y})")
     click_at(driver, CLICK_4_X, CLICK_4_Y, "(Click for username)")
@@ -303,24 +286,24 @@ try:
     type_text(driver, TEXT_3, "(Username)")
     wait(1)
     
-    take_screenshot(driver, f"typing_username", timestamp, crop_area=(800, 450, 1100, 550))
-    wait(1)
-    
-    # ===== مرحله 7: کلیک پنجم + تایپ (تکرار پسورد) =====
+    # ===== مرحله 7: کلیک پنجم + تایپ تایید پسورد =====
     print(f"\n🖱️ Step 5: Click at ({CLICK_5_X}, {CLICK_5_Y})")
     click_at(driver, CLICK_5_X, CLICK_5_Y, "(Click for confirm password)")
     wait(1)
     type_text(driver, TEXT_4, "(Confirm Password)")
     wait(1)
     
-    take_screenshot(driver, f"typing_confirm_password", timestamp, crop_area=(800, 550, 1100, 650))
-    wait(1)
+    # ===== مرحله 8: کلیک ششم (ارسال فرم) =====
+    print(f"\n🖱️ Step 6: Click at ({CLICK_6_X}, {CLICK_6_Y})")
+    click_at(driver, CLICK_6_X, CLICK_6_Y, "(Submit form)")
+    wait(3, "after submit")
     
-    # ===== مرحله 8: کلیک نهایی =====
-    print(f"\n🖱️ Step 6: Final click at ({CLICK_6_X}, {CLICK_6_Y})")
-    click_at(driver, CLICK_6_X, CLICK_6_Y, "(Final click - Submit)")
+    # ===== مرحله 9: کلیک هفتم (جدید) =====
+    print(f"\n🖱️ Step 7: Click at ({CLICK_7_X}, {CLICK_7_Y})")
+    click_at(driver, CLICK_7_X, CLICK_7_Y, "(Final click)")
     wait(4, "after final click")
     
+    # ===== فقط یک اسکرین‌شات نهایی =====
     final_screenshot = take_screenshot(driver, f"final", timestamp)
     
     print("\n" + "=" * 70)
@@ -329,13 +312,7 @@ try:
     print(f"📧 Email used: {EMAIL}")
     print(f"🔑 Password used: {TEXT_4}")
     print(f"👤 Username used: {TEXT_3}")
-    print("\n📸 Screenshots taken:")
-    print(f"   1. typing_password_{timestamp}.png")
-    print(f"   2. typing_email_{timestamp}.png")
-    print(f"   3. typing_username_{timestamp}.png")
-    print(f"   4. typing_confirm_password_{timestamp}.png")
-    print(f"   5. final_{timestamp}.png")
-    
+    print(f"\n📸 Final screenshot: final_{timestamp}.png")
     print(f"\n💾 Email info saved to email_info.txt and email_info.json")
     
 except Exception as e:
