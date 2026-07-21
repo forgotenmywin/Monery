@@ -4,7 +4,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.action_chains import ActionChains
 import time
 
-TARGET_URL = "https://example.com"
+TARGET_URL = "https://hashora.net/register?ref=KINGKINGPLM0073637"
 
 # ===== مختصات کلیک =====
 CLICK_X = 925
