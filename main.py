@@ -120,7 +120,10 @@ def type_text(driver, text, label=""):
 
 def wait(seconds, label=""):
     """انتظار با لاگ"""
-    print(f"⏳ Waiting {seconds} seconds {label}...")
+    if label:
+        print(f"⏳ Waiting {seconds} seconds {label}...")
+    else:
+        print(f"⏳ Waiting {seconds} seconds ...")
     time.sleep(seconds)
 
 def take_screenshot(driver, name, timestamp, crop_area=None):
@@ -130,7 +133,7 @@ def take_screenshot(driver, name, timestamp, crop_area=None):
     if crop_area:
         # گرفتن اسکرین‌شات کامل و برش
         driver.save_screenshot(filename)
-        # برش با استفاده از PIL (اگر نصب باشه)
+        # برش با استفاده از PIL
         try:
             from PIL import Image
             img = Image.open(filename)
@@ -138,7 +141,7 @@ def take_screenshot(driver, name, timestamp, crop_area=None):
             cropped = img.crop(crop_area)
             cropped.save(filename)
             print(f"📸 Cropped screenshot saved: {filename}")
-        except:
+        except ImportError:
             print(f"📸 Full screenshot saved: {filename} (PIL not installed)")
     else:
         driver.save_screenshot(filename)
@@ -183,8 +186,8 @@ try:
     type_text(driver, TEXT_1, "(Text 1)")
     wait(1)
     
-    # گرفتن اسکرین‌شات از بخش تایپ شده (مختصات حدودی)
-    take_screenshot(driver, f"typing_1_{timestamp}", timestamp, crop_area=(800, 250, 1100, 350))
+    # گرفتن اسکرین‌شات از بخش تایپ شده
+    take_screenshot(driver, f"typing_1", timestamp, crop_area=(800, 250, 1100, 350))
     wait(1)
     
     # ===== کلیک سوم + تایپ =====
@@ -195,7 +198,7 @@ try:
     wait(1)
     
     # گرفتن اسکرین‌شات از بخش تایپ شده
-    take_screenshot(driver, f"typing_2_{timestamp}", timestamp, crop_area=(800, 350, 1100, 450))
+    take_screenshot(driver, f"typing_2", timestamp, crop_area=(800, 350, 1100, 450))
     wait(1)
     
     # ===== کلیک چهارم + تایپ =====
@@ -206,7 +209,7 @@ try:
     wait(1)
     
     # گرفتن اسکرین‌شات از بخش تایپ شده
-    take_screenshot(driver, f"typing_3_{timestamp}", timestamp, crop_area=(800, 450, 1100, 550))
+    take_screenshot(driver, f"typing_3", timestamp, crop_area=(800, 450, 1100, 550))
     wait(1)
     
     # ===== کلیک پنجم + تایپ =====
@@ -217,7 +220,7 @@ try:
     wait(1)
     
     # گرفتن اسکرین‌شات از بخش تایپ شده
-    take_screenshot(driver, f"typing_4_{timestamp}", timestamp, crop_area=(800, 550, 1100, 650))
+    take_screenshot(driver, f"typing_4", timestamp, crop_area=(800, 550, 1100, 650))
     wait(1)
     
     # ===== کلیک ششم (نهایی) =====
@@ -226,7 +229,7 @@ try:
     wait(4, "after final click")
     
     # اسکرین‌شات نهایی
-    final_screenshot = take_screenshot(driver, f"final_{timestamp}", timestamp)
+    final_screenshot = take_screenshot(driver, f"final", timestamp)
     
     print("\n" + "=" * 70)
     print("✅ ALL DONE!")
