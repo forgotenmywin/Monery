@@ -1,68 +1,51 @@
-name: Click Test (Manual)
+# .github/workflows/run.yml
+name: Run Browser
 
 on:
-  workflow_dispatch:  # فقط دستی
+  workflow_dispatch:
 
 jobs:
-  capture:
+  run:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-
+    
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
+      
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
-          python-version: '3.12'
-
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: pip install selenium
+      
       - name: Install Chrome
         run: |
           sudo apt-get update
-          sudo apt-get install -y chromium-browser chromium-chromedriver
-          chromium-browser --version
-
-      - name: Install Python dependencies
+          sudo apt-get install -y wget unzip
+          wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list'
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
+      
+      - name: Setup ChromeDriver
         run: |
-          pip install selenium pillow requests
-
-      - name: Install fonts
-        run: |
-          sudo apt-get install -y fonts-dejavu
-
-      - name: Get current time
-        id: time
-        run: echo "time=$(date +'%Y-%m-%d_%H-%M-%S')" >> $GITHUB_OUTPUT
-
+          CHROME_VERSION=$(google-chrome --version | awk '{print $3}' | cut -d '.' -f 1-3)
+          LATEST_DRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_$CHROME_VERSION")
+          wget -q "https://storage.googleapis.com/chrome-for-testing-public/$LATEST_DRIVER_VERSION/linux64/chromedriver-linux64.zip"
+          unzip chromedriver-linux64.zip
+          sudo mv chromedriver-linux64/chromedriver /usr/local/bin/
+          sudo chmod +x /usr/local/bin/chromedriver
+      
       - name: Run script
-        env:
-          MY_GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
-          WEBSHARE_API_KEY: ${{ secrets.WEBSHARE_API_KEY }}  # اضافه شد
         run: python main.py
-
-      - name: Upload to Artifacts
+      
+      - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: click-test-${{ steps.time.outputs.time }}
+          name: screenshots
           path: |
             *.png
-            *.txt
+            *.jpg
           retention-days: 7
-
-      - name: Commit and push files
-        if: always()
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
-          git add whroted.txt used_proxies.txt used_passwords.txt 2>/dev/null || true
-
-          if ! git diff --staged --quiet; then
-            git commit -m "Update used files [skip ci]"
-            git push
-            echo "✅ Files pushed"
-          else
-            echo "ℹ️ No changes"
-          fi
