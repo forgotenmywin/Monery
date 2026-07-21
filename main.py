@@ -1,51 +1,52 @@
-# .github/workflows/run.yml
-name: Run Browser
+# main.py
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+import time
 
-on:
-  workflow_dispatch:
+TARGET_URL = "https://example.com"
 
-jobs:
-  run:
-    runs-on: ubuntu-latest
+options = Options()
+options.add_argument('--headless')  # برای GitHub Actions لازمه
+options.add_argument('--no-sandbox')
+options.add_argument('--disable-dev-shm-usage')
+options.add_argument('--window-size=1920,1080')
+options.add_argument('--disable-gpu')
+
+driver = None
+
+try:
+    print("=" * 70)
+    print("🚀 Starting browser...")
+    print("=" * 70)
     
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-      
-      - name: Install dependencies
-        run: pip install selenium
-      
-      - name: Install Chrome
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y wget unzip
-          wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
-          sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list'
-          sudo apt-get update
-          sudo apt-get install -y google-chrome-stable
-      
-      - name: Setup ChromeDriver
-        run: |
-          CHROME_VERSION=$(google-chrome --version | awk '{print $3}' | cut -d '.' -f 1-3)
-          LATEST_DRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_$CHROME_VERSION")
-          wget -q "https://storage.googleapis.com/chrome-for-testing-public/$LATEST_DRIVER_VERSION/linux64/chromedriver-linux64.zip"
-          unzip chromedriver-linux64.zip
-          sudo mv chromedriver-linux64/chromedriver /usr/local/bin/
-          sudo chmod +x /usr/local/bin/chromedriver
-      
-      - name: Run script
-        run: python main.py
-      
-      - name: Upload screenshots
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: screenshots
-          path: |
-            *.png
-            *.jpg
-          retention-days: 7
+    driver = webdriver.Chrome(options=options)
+    
+    print(f"\n🌐 Opening {TARGET_URL}...")
+    driver.get(TARGET_URL)
+    time.sleep(3)
+    
+    print("\n✅ Page loaded!")
+    
+    # گرفتن اسکرین‌شات
+    timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
+    screenshot_path = f"screenshot_{timestamp}.png"
+    driver.save_screenshot(screenshot_path)
+    print(f"📸 Screenshot saved: {screenshot_path}")
+    
+    # گرفتن title صفحه
+    title = driver.title
+    print(f"📄 Page title: {title}")
+    
+    print("\n✅ DONE!")
+    
+except Exception as e:
+    print(f"❌ Error: {e}")
+    if driver:
+        driver.save_screenshot(f"error_{timestamp}.png")
+    import traceback
+    traceback.print_exc()
+    
+finally:
+    if driver:
+        driver.quit()
+        print("👋 Browser closed")
