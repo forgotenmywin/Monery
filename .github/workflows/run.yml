@@ -40,12 +40,10 @@ jobs:
       - name: Run script
         run: python main.py
       
-      - name: Upload screenshots
+      - name: Upload screenshot
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: screenshots
-          path: |
-            *.png
-            *.jpg
+          name: screenshot
+          path: screenshot_*.png
           retention-days: 7
