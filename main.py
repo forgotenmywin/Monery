@@ -10,8 +10,8 @@ import time
 TARGET_URL = "https://hashora.net/register?ref=KINGKINGPLM0073637"
 
 # ===== مختصات کلیک =====
-CLICK_X = 925
-CLICK_Y = 867
+CLICK_X = 877
+CLICK_Y = 929
 
 # =============================================
 # ===== تنظیمات مرورگر =====
