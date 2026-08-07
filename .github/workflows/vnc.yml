@@ -1,0 +1,41 @@
+name: VNC Browser Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  vnc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            xvfb \
+            x11vnc \
+            novnc \
+            websockify \
+            chromium-browser \
+            wget \
+            curl \
+            unzip
+
+      - name: Download cloudflared
+        run: |
+          set -e
+          wget -qO cloudflared.tgz https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.tgz
+          tar -xzf cloudflared.tgz
+          sudo mv cloudflared /usr/local/bin/cloudflared
+          cloudflared --version
+
+      - name: Start VNC stack + Chromium + tunnel
+        run: |
+          chmod +x ./start.sh
+          ./start.sh &
+          sleep 8
+          cloudflared tunnel --url http://localhost:6080
