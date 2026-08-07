@@ -16,14 +16,11 @@ jobs:
             -p 5800:5800 \
             jlesage/chromium:latest
 
-      - name: نصب ssh (اختیاری)
+      - name: نصب ssh
         run: |
           sudo apt update
           sudo apt install openssh-client -y
 
       - name: ایجاد تونل با Serveo
         run: |
-          ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=60 -R 80:localhost:5800 serveo.net &
-          sleep 10
-          echo "✅ لینک دسترسی شما:"
-          echo "https://your-subdomain.serveo.net"
+          ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=60 -R 80:localhost:5800 serveo.net
