@@ -6,11 +6,14 @@ on:
 jobs:
   chrome:
     runs-on: ubuntu-latest
+    timeout-minutes: 360
+
     steps:
       - name: اجرای کانتینر کروم
         run: |
           docker run -d \
             --name chromium \
+            --restart unless-stopped \
             -e VNC_PASS=your_password \
             -e RESOLUTION=1280x720 \
             -p 5800:5800 \
@@ -23,7 +26,29 @@ jobs:
 
       - name: اجرای تونل Cloudflare
         run: |
-          cloudflared tunnel --url http://localhost:5800 --no-autoupdate > /tmp/cloudflared.log 2>&1 &
+          echo "⏳ منتظر آماده شدن Chromium..."
+          sleep 15
+
+          while ! nc -z localhost 5800; do
+            echo "⏳ پورت 5800 آماده نیست..."
+            sleep 2
+          done
+
+          echo "✅ پورت 5800 آماده است"
+
+          cloudflared tunnel \
+            --url http://localhost:5800 \
+            --no-autoupdate > /tmp/cloudflared.log 2>&1 &
+
           sleep 10
-          TUNNEL_URL=$(grep -o 'https://.*\.trycloudflare\.com' /tmp/cloudflared.log | head -1)
-          echo "✅ لینک دسترسی شما: $TUNNEL_URL"
+
+          echo "===== CLOUDFLARE URL ====="
+          grep -o 'https://[-a-zA-Z0-9]*\.trycloudflare\.com' /tmp/cloudflared.log || true
+
+          echo "=========================="
+
+          while true; do
+            echo "🟢 مرورگر و تونل فعال هستند..."
+            docker ps
+            sleep 60
+          done
