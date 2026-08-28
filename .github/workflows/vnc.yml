@@ -10,10 +10,12 @@ jobs:
 
     steps:
 
-      # ─────────────────────────────────────────────
-      # ساخت Docker image با Google Chrome واقعی
-      # ─────────────────────────────────────────────
-      - name: ساخت Docker image
+      # دریافت start.sh و سایر فایل‌های ریپو
+      - name: دریافت فایل‌های ریپو
+        uses: actions/checkout@v4
+
+      # ساخت Dockerfile
+      - name: ساخت Dockerfile
         run: |
           cat > Dockerfile <<'EOF'
           FROM ubuntu:24.04
@@ -32,7 +34,7 @@ jobs:
                 netcat-openbsd \
               && rm -rf /var/lib/apt/lists/*
 
-          # نصب Google Chrome Stable رسمی
+          # Google Chrome Stable رسمی
           RUN wget -q \
                 https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
                 -O /tmp/google-chrome.deb && \
@@ -49,11 +51,12 @@ jobs:
           CMD ["/start.sh"]
           EOF
 
-          docker build -t monery-chrome .
+      # ساخت Image
+      - name: ساخت Docker image
+        run: |
+          docker build --no-cache -t monery-chrome .
 
-      # ─────────────────────────────────────────────
-      # اجرای کانتینر Google Chrome
-      # ─────────────────────────────────────────────
+      # اجرای Google Chrome
       - name: اجرای Google Chrome
         run: |
           docker run -d \
@@ -62,26 +65,22 @@ jobs:
             -p 6080:6080 \
             monery-chrome
 
-      # ─────────────────────────────────────────────
-      # نصب Cloudflare Tunnel
-      # ─────────────────────────────────────────────
+      # نصب Cloudflare
       - name: نصب cloudflared
         run: |
-          curl -sL \
+          curl -L \
             https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb \
             -o cloudflared.deb
 
           sudo dpkg -i cloudflared.deb
 
-      # ─────────────────────────────────────────────
       # اجرای Cloudflare Tunnel
-      # ─────────────────────────────────────────────
       - name: اجرای تونل Cloudflare
         run: |
 
-          echo "⏳ منتظر آماده شدن Google Chrome و noVNC..."
+          echo "⏳ منتظر آماده شدن noVNC..."
 
-          sleep 15
+          sleep 10
 
           while ! nc -z localhost 6080; do
             echo "⏳ پورت 6080 آماده نیست..."
@@ -109,10 +108,8 @@ jobs:
           echo "=========================================="
           echo ""
 
-          # نمایش وضعیت
           while true; do
             echo "🟢 Google Chrome + noVNC + Cloudflare فعال هستند..."
             docker ps
-            echo ""
             sleep 60
           done
