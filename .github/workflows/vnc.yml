@@ -1,4 +1,4 @@
-name: اجرای مرورگر با noVNC (Cloudflare Tunnel)
+name: اجرای Google Chrome با noVNC (Cloudflare Tunnel)
 
 on:
   workflow_dispatch:
@@ -9,46 +9,110 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: اجرای کانتینر کروم
+
+      # ─────────────────────────────────────────────
+      # ساخت Docker image با Google Chrome واقعی
+      # ─────────────────────────────────────────────
+      - name: ساخت Docker image
+        run: |
+          cat > Dockerfile <<'EOF'
+          FROM ubuntu:24.04
+
+          ENV DEBIAN_FRONTEND=noninteractive
+
+          RUN apt-get update && \
+              apt-get install -y \
+                wget \
+                curl \
+                ca-certificates \
+                xvfb \
+                x11vnc \
+                novnc \
+                websockify \
+                netcat-openbsd \
+              && rm -rf /var/lib/apt/lists/*
+
+          # نصب Google Chrome Stable رسمی
+          RUN wget -q \
+                https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
+                -O /tmp/google-chrome.deb && \
+              apt-get update && \
+              apt-get install -y /tmp/google-chrome.deb && \
+              rm -f /tmp/google-chrome.deb && \
+              rm -rf /var/lib/apt/lists/*
+
+          COPY start.sh /start.sh
+          RUN chmod +x /start.sh
+
+          EXPOSE 6080
+
+          CMD ["/start.sh"]
+          EOF
+
+          docker build -t monery-chrome .
+
+      # ─────────────────────────────────────────────
+      # اجرای کانتینر Google Chrome
+      # ─────────────────────────────────────────────
+      - name: اجرای Google Chrome
         run: |
           docker run -d \
-            --name chromium \
+            --name chrome \
             --restart unless-stopped \
-            -e VNC_PASS=your_password \
-            -e RESOLUTION=1280x720 \
-            -p 5800:5800 \
-            jlesage/chromium:latest
+            -p 6080:6080 \
+            monery-chrome
 
+      # ─────────────────────────────────────────────
+      # نصب Cloudflare Tunnel
+      # ─────────────────────────────────────────────
       - name: نصب cloudflared
         run: |
-          curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o cloudflared.deb
+          curl -sL \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb \
+            -o cloudflared.deb
+
           sudo dpkg -i cloudflared.deb
 
+      # ─────────────────────────────────────────────
+      # اجرای Cloudflare Tunnel
+      # ─────────────────────────────────────────────
       - name: اجرای تونل Cloudflare
         run: |
-          echo "⏳ منتظر آماده شدن Chromium..."
+
+          echo "⏳ منتظر آماده شدن Google Chrome و noVNC..."
+
           sleep 15
 
-          while ! nc -z localhost 5800; do
-            echo "⏳ پورت 5800 آماده نیست..."
+          while ! nc -z localhost 6080; do
+            echo "⏳ پورت 6080 آماده نیست..."
             sleep 2
           done
 
-          echo "✅ پورت 5800 آماده است"
+          echo "✅ پورت 6080 آماده است"
 
           cloudflared tunnel \
-            --url http://localhost:5800 \
-            --no-autoupdate > /tmp/cloudflared.log 2>&1 &
+            --url http://localhost:6080 \
+            --no-autoupdate \
+            > /tmp/cloudflared.log 2>&1 &
 
           sleep 10
 
-          echo "===== CLOUDFLARE URL ====="
-          grep -o 'https://[-a-zA-Z0-9]*\.trycloudflare\.com' /tmp/cloudflared.log || true
+          echo ""
+          echo "=========================================="
+          echo "        CLOUDFLARE URL"
+          echo "=========================================="
 
-          echo "=========================="
+          grep -o \
+            'https://[-a-zA-Z0-9]*\.trycloudflare\.com' \
+            /tmp/cloudflared.log || true
 
+          echo "=========================================="
+          echo ""
+
+          # نمایش وضعیت
           while true; do
-            echo "🟢 مرورگر و تونل فعال هستند..."
+            echo "🟢 Google Chrome + noVNC + Cloudflare فعال هستند..."
             docker ps
+            echo ""
             sleep 60
           done
