@@ -1,4 +1,5 @@
-name: اجرای مرورگر با noVNC (Cloudflare Tunnel)
+
+name: اجرای مرورگر با noVNC (Cloudflare Tunnel + F12)
 
 on:
   workflow_dispatch:
@@ -9,47 +10,196 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: اجرای کانتینر کروم
+      - name: ساخت نسخه سفارشی Chromium با دکمه F12
+        shell: bash
         run: |
+          set -euo pipefail
+
+          mkdir -p custom-chromium
+
+          echo "⬇️ دریافت تصویر رسمی Chromium..."
+          docker pull jlesage/chromium:latest
+
+          echo "📦 استخراج رابط noVNC از همان تصویر..."
+          BASE_CONTAINER_ID="$(docker create jlesage/chromium:latest)"
+          docker cp "${BASE_CONTAINER_ID}:/opt/noVNC/index.html" custom-chromium/index.html
+          docker rm "${BASE_CONTAINER_ID}"
+
+          echo "🧩 افزودن بارگذاری اسکریپت دکمه F12..."
+          python3 - <<'PY'
+          from pathlib import Path
+
+          html_path = Path("custom-chromium/index.html")
+          html = html_path.read_text(encoding="utf-8")
+          marker = "        UI.start();"
+
+          if html.count(marker) != 1:
+              raise SystemExit(
+                  "خطا: محل UI.start() در index.html دقیقاً یک‌بار پیدا نشد؛ "
+                  "ساخت متوقف شد تا فایل رابط اشتباه تغییر نکند."
+              )
+
+          html = html.replace(
+              marker,
+              marker + '\n        import("./app/f12-settings.js?v=f12-1");',
+              1,
+          )
+          html_path.write_text(html, encoding="utf-8")
+          PY
+
+          cat > custom-chromium/f12-settings.js <<'JS'
+          import UI from "./ui.js";
+
+          function addF12Setting() {
+              const settings = document.getElementById("settingsCollapse");
+              if (!settings) {
+                  console.error("F12: noVNC Settings panel was not found.");
+                  return;
+              }
+
+              if (document.getElementById("noVNC_developer_tools_button")) {
+                  return;
+              }
+
+              const row = document.createElement("div");
+              row.id = "noVNC_developer_tools_row";
+              row.className = "d-flex align-items-center justify-content-between mb-2";
+
+              const label = document.createElement("span");
+              label.className = "text-nowrap me-2";
+              label.textContent = "Developer Tools";
+
+              const button = document.createElement("button");
+              button.id = "noVNC_developer_tools_button";
+              button.type = "button";
+              button.className = "btn btn-sm btn-outline-secondary";
+              button.textContent = "F12";
+              button.title = "Send F12 to Chromium to open Developer Tools";
+              button.setAttribute("aria-label", "Open Developer Tools with F12");
+
+              button.addEventListener("click", (event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+
+                  if (!UI.rfb || !UI.connected) {
+                      button.blur();
+                      console.warn("F12: the remote Chromium session is not connected yet.");
+                      return;
+                  }
+
+                  // X11 keysym for F12 is 0xFFC9.
+                  UI.sendKey(0xFFC9, "F12");
+              });
+
+              row.append(label, button);
+
+              const loggingGroup = document.getElementById("noVNC_setting_logging")?.parentElement;
+              if (loggingGroup && loggingGroup.parentElement === settings) {
+                  settings.insertBefore(row, loggingGroup);
+              } else {
+                  settings.appendChild(row);
+              }
+          }
+
+          if (document.readyState === "loading") {
+              document.addEventListener("DOMContentLoaded", addF12Setting, { once: true });
+          } else {
+              addF12Setting();
+          }
+          JS
+
+          cat > custom-chromium/Dockerfile <<'DOCKER'
+          FROM jlesage/chromium:latest
+          COPY index.html /opt/noVNC/index.html
+          COPY f12-settings.js /opt/noVNC/app/f12-settings.js
+          DOCKER
+
+          echo "🏗️ ساخت تصویر سفارشی..."
+          docker build -t chromium-f12:local custom-chromium
+
+          echo "✅ تصویر chromium-f12:local ساخته شد."
+
+      - name: اجرای کانتینر Chromium
+        shell: bash
+        env:
+          VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${VNC_PASSWORD:-}" ]; then
+            echo "::error::ابتدا Secret با نام VNC_PASSWORD را در GitHub تنظیم کن. رمز VNC باید حداکثر ۸ کاراکتر باشد."
+            exit 1
+          fi
+
           docker run -d \
             --name chromium \
             --restart unless-stopped \
-            -e VNC_PASS=your_password \
-            -e RESOLUTION=1280x720 \
-            -e CHROMIUM_CUSTOM_ARGS="--auto-open-devtools-for-tabs" \
+            -e VNC_PASSWORD="$VNC_PASSWORD" \
+            -e DISPLAY_WIDTH=1280 \
+            -e DISPLAY_HEIGHT=720 \
             -p 5800:5800 \
-            jlesage/chromium:latest
+            chromium-f12:local
 
       - name: نصب cloudflared
         run: |
-          curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o cloudflared.deb
+          set -euo pipefail
+          curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o cloudflared.deb
           sudo dpkg -i cloudflared.deb
 
       - name: اجرای تونل Cloudflare
+        shell: bash
         run: |
-          echo "⏳ منتظر آماده شدن Chromium..."
-          sleep 15
+          set -euo pipefail
 
-          while ! nc -z localhost 5800; do
-            echo "⏳ پورت 5800 آماده نیست..."
+          echo "⏳ منتظر آماده شدن Chromium..."
+          for i in $(seq 1 90); do
+            if nc -z localhost 5800; then
+              break
+            fi
+            echo "⏳ پورت 5800 آماده نیست... ($i/90)"
             sleep 2
           done
+
+          if ! nc -z localhost 5800; then
+            echo "❌ Chromium روی پورت 5800 آماده نشد."
+            docker logs --tail 100 chromium || true
+            exit 1
+          fi
 
           echo "✅ پورت 5800 آماده است"
 
           cloudflared tunnel \
             --url http://localhost:5800 \
             --no-autoupdate > /tmp/cloudflared.log 2>&1 &
+          TUNNEL_PID=$!
 
-          sleep 10
+          echo "⏳ منتظر ایجاد آدرس Cloudflare..."
+          CLOUDFLARE_URL=""
+          for i in $(seq 1 30); do
+            CLOUDFLARE_URL="$(grep -Eo 'https://[-a-zA-Z0-9]+\.trycloudflare\.com' /tmp/cloudflared.log | head -n 1 || true)"
+            if [ -n "$CLOUDFLARE_URL" ]; then
+              break
+            fi
+            sleep 2
+          done
+
+          if [ -z "$CLOUDFLARE_URL" ]; then
+            echo "❌ آدرس تونل پیدا نشد. گزارش cloudflared:"
+            cat /tmp/cloudflared.log
+            exit 1
+          fi
 
           echo "===== CLOUDFLARE URL ====="
-          grep -o 'https://[-a-zA-Z0-9]*\.trycloudflare\.com' /tmp/cloudflared.log || true
-
+          echo "$CLOUDFLARE_URL"
           echo "=========================="
+          echo "✅ در پنل Settings گزینه Developer Tools / F12 اضافه شده است."
+          echo "🟢 مرورگر و تونل فعال هستند."
 
-          while true; do
-            echo "🟢 مرورگر و تونل فعال هستند..."
-            docker ps
+          while kill -0 "$TUNNEL_PID" 2>/dev/null; do
+            docker ps --filter name=chromium
             sleep 60
           done
+
+          echo "❌ پردازش Cloudflare Tunnel متوقف شد."
+          cat /tmp/cloudflared.log
+          exit 1
