@@ -16,6 +16,7 @@ jobs:
             --restart unless-stopped \
             -e VNC_PASS=your_password \
             -e RESOLUTION=1280x720 \
+            -e CHROMIUM_CUSTOM_ARGS="--auto-open-devtools-for-tabs" \
             -p 5800:5800 \
             jlesage/chromium:latest
 
