@@ -1,5 +1,5 @@
 
-name: اجرای مرورگر با noVNC و F12 واقعی
+name: اجرای Chromium با noVNC و F12 واقعی
 
 on:
   workflow_dispatch:
@@ -13,41 +13,42 @@ concurrency:
 
 jobs:
   chromium:
-    name: Chromium + noVNC + Cloudflare Tunnel
+    name: Chromium + noVNC + Cloudflare
     runs-on: ubuntu-latest
     timeout-minutes: 360
 
     env:
-      VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
+      WEB_USERNAME: ${{ secrets.WEB_USERNAME }}
+      WEB_PASSWORD: ${{ secrets.WEB_PASSWORD }}
 
     steps:
 
-      # =====================================================
-      # 1. Validate password
-      # =====================================================
+      # ==========================================
+      # 1. Validate credentials
+      # ==========================================
 
-      - name: Validate VNC password
+      - name: Validate credentials
         shell: bash
         run: |
           set -euo pipefail
 
-          if [[ -z "${VNC_PASSWORD:-}" ]]; then
-            echo "::error::GitHub Secret VNC_PASSWORD is missing."
+          if [[ -z "${WEB_USERNAME:-}" ]]; then
+            echo "::error::WEB_USERNAME secret is missing."
             exit 1
           fi
 
-          if [[ ${#VNC_PASSWORD} -gt 8 ]]; then
-            echo "::error::VNC_PASSWORD must be 8 characters or fewer."
+          if [[ -z "${WEB_PASSWORD:-}" ]]; then
+            echo "::error::WEB_PASSWORD secret is missing."
             exit 1
           fi
 
-          echo "VNC password validation successful."
+          echo "Web authentication credentials validated."
 
-      # =====================================================
-      # 2. Download and patch noVNC
-      # =====================================================
+      # ==========================================
+      # 2. Pull and patch Chromium image
+      # ==========================================
 
-      - name: Build Chromium image with F12 button
+      - name: Build Chromium with F12 button
         shell: bash
         run: |
           set -euo pipefail
@@ -55,6 +56,7 @@ jobs:
           docker pull jlesage/chromium:latest
 
           BUILD_DIR="$RUNNER_TEMP/chromium-f12"
+
           mkdir -p "$BUILD_DIR"
 
           docker create \
@@ -73,9 +75,10 @@ jobs:
           import sys
 
           path = Path(sys.argv[1])
+
           html = path.read_text(encoding="utf-8")
 
-          marker = 'noVNC_devtools_f12_button'
+          marker = "noVNC_devtools_f12_button"
 
           if marker in html:
               raise SystemExit("F12 patch already exists.")
@@ -114,9 +117,6 @@ jobs:
               button.className = "btn btn-outline-primary btn-sm w-100";
               button.textContent = "DevTools (F12)";
 
-              button.title =
-                  "Send F12 to remote Chromium.";
-
               const hint = document.createElement("div");
 
               hint.className = "form-text mt-1";
@@ -153,7 +153,10 @@ jobs:
               settings.appendChild(wrap);
 
           }).catch(error => {
-              console.error("noVNC initialization failed:", error);
+              console.error(
+                  "noVNC initialization failed:",
+                  error
+              );
           });
           '''
 
@@ -170,7 +173,7 @@ jobs:
 
           path.write_text(html, encoding="utf-8")
 
-          print("F12 button successfully injected.")
+          print("F12 button injected successfully.")
           PY
 
           test -s "$BUILD_DIR/index.html"
@@ -185,9 +188,9 @@ jobs:
             -t chromium-f12:local \
             "$BUILD_DIR"
 
-      # =====================================================
+      # ==========================================
       # 3. Start Chromium
-      # =====================================================
+      # ==========================================
 
       - name: Start Chromium container
         shell: bash
@@ -199,8 +202,12 @@ jobs:
           docker run -d \
             --name chromium-f12 \
             --shm-size=2g \
-            --publish 5800:5800 \
-            --env "VNC_PASSWORD=${VNC_PASSWORD}" \
+            --publish 127.0.0.1:5800:5800 \
+            --env "WEB_AUTHENTICATION=1" \
+            --env "WEB_AUTHENTICATION_ALLOW_INSECURE=1" \
+            --env "WEB_AUTHENTICATION_USERNAME=${WEB_USERNAME}" \
+            --env "WEB_AUTHENTICATION_PASSWORD=${WEB_PASSWORD}" \
+            --env "WEB_AUTHENTICATION_TOKEN_VALIDITY_TIME=24" \
             --env "KEEP_APP_RUNNING=1" \
             --restart unless-stopped \
             chromium-f12:local
@@ -222,6 +229,7 @@ jobs:
           done
 
           if [[ "$READY" != "1" ]]; then
+
             echo "::error::Chromium failed to start."
 
             docker logs --tail 150 chromium-f12 || true
@@ -231,9 +239,39 @@ jobs:
 
           echo "Chromium and noVNC are ready."
 
-      # =====================================================
-      # 4. Install Cloudflare
-      # =====================================================
+      # ==========================================
+      # 4. Authentication diagnostics
+      # ==========================================
+
+      - name: Verify authentication configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=== AUTHENTICATION SETTINGS ==="
+
+          docker inspect chromium-f12 \
+            --format '{{range .Config.Env}}{{println .}}{{end}}' \
+            | grep -E '^(WEB_AUTHENTICATION|WEB_AUTHENTICATION_ALLOW_INSECURE|WEB_AUTHENTICATION_USERNAME|WEB_AUTHENTICATION_PASSWORD)=' \
+            | sed -E 's/WEB_AUTHENTICATION_PASSWORD=.*/WEB_AUTHENTICATION_PASSWORD=[REDACTED]/'
+
+          echo
+          echo "=== CONTAINER STATUS ==="
+
+          docker inspect chromium-f12 \
+            --format 'Running={{.State.Running}}'
+
+          echo
+          echo "=== AUTHENTICATION LOGS ==="
+
+          docker logs --tail 100 chromium-f12 2>&1 \
+            | grep -iE 'auth|password|vnc|error|web' \
+            | sed -E 's/(password|passwd)[=: ]+[^ ]+/\1=[REDACTED]/Ig' \
+            || true
+
+      # ==========================================
+      # 5. Install Cloudflare
+      # ==========================================
 
       - name: Install cloudflared
         shell: bash
@@ -248,11 +286,11 @@ jobs:
 
           cloudflared --version
 
-      # =====================================================
-      # 5. Start public tunnel
-      # =====================================================
+      # ==========================================
+      # 6. Start public tunnel
+      # ==========================================
 
-      - name: Open Cloudflare Tunnel and keep session alive
+      - name: Start Cloudflare Tunnel
         shell: bash
         run: |
           set -euo pipefail
@@ -267,8 +305,11 @@ jobs:
           TUNNEL_PID=$!
 
           cleanup() {
+
             kill "$TUNNEL_PID" 2>/dev/null || true
-            docker rm -f chromium-f12 >/dev/null 2>&1 || true
+
+            docker rm -f chromium-f12 \
+              >/dev/null 2>&1 || true
           }
 
           trap cleanup EXIT
@@ -279,7 +320,7 @@ jobs:
 
             if ! kill -0 "$TUNNEL_PID" 2>/dev/null; then
 
-              echo "Cloudflare tunnel stopped."
+              echo "Cloudflare stopped."
 
               cat "$TUNNEL_LOG" || true
 
@@ -300,7 +341,7 @@ jobs:
 
           if [[ -z "$TUNNEL_URL" ]]; then
 
-            echo "Cloudflare URL was not obtained."
+            echo "::error::Could not obtain Cloudflare URL."
 
             cat "$TUNNEL_LOG" || true
 
@@ -308,25 +349,33 @@ jobs:
           fi
 
           {
-            echo "## Chromium noVNC"
+            echo "# Chromium noVNC"
             echo
             echo "**URL:** $TUNNEL_URL"
             echo
-            echo "**Password:** GitHub Secret VNC_PASSWORD"
+            echo "**Username:** GitHub Secret WEB_USERNAME"
             echo
-            echo "Open noVNC Settings and press DevTools (F12)."
+            echo "**Password:** GitHub Secret WEB_PASSWORD"
+            echo
+            echo "Open noVNC Settings and use DevTools (F12)."
+            echo
+            echo "Session duration: up to 6 hours."
           } >> "$GITHUB_STEP_SUMMARY"
 
-          echo "::notice title=noVNC URL::$TUNNEL_URL"
+          echo "::notice title=Chromium noVNC::$TUNNEL_URL"
 
-          echo "Tunnel is active."
-          echo "Workflow remains running for up to 6 hours."
+          echo "======================================"
+          echo "Chromium noVNC is ONLINE"
+          echo "URL: $TUNNEL_URL"
+          echo "Authentication: ENABLED"
+          echo "F12 patch: ENABLED"
+          echo "======================================"
 
           while kill -0 "$TUNNEL_PID" 2>/dev/null; do
 
             if [[ "$(docker inspect -f '{{.State.Running}}' chromium-f12 2>/dev/null || true)" != "true" ]]; then
 
-              echo "Chromium container stopped."
+              echo "::error::Chromium container stopped."
 
               docker logs --tail 100 chromium-f12 || true
 
@@ -336,5 +385,5 @@ jobs:
             sleep 15
           done
 
-          echo "Cloudflare tunnel process exited."
+          echo "Cloudflare tunnel exited unexpectedly."
           exit 1
