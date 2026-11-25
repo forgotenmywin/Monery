@@ -1,3 +1,4 @@
+
 name: اجرای مرورگر با noVNC و F12 واقعی
 
 on:
@@ -15,24 +16,38 @@ jobs:
     name: Chromium + noVNC + Cloudflare Tunnel
     runs-on: ubuntu-latest
     timeout-minutes: 360
+
     env:
       VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
 
     steps:
+
+      # =====================================================
+      # 1. Validate password
+      # =====================================================
+
       - name: Validate VNC password
         shell: bash
         run: |
           set -euo pipefail
+
           if [[ -z "${VNC_PASSWORD:-}" ]]; then
-            echo "خطا: در GitHub Secret با نام VNC_PASSWORD بساز. رمز باید حداکثر ۸ کاراکتر باشد."
-            exit 1
-          fi
-          if [[ ${#VNC_PASSWORD} -gt 8 ]]; then
-            echo "خطا: VNC_PASSWORD نباید بیشتر از ۸ کاراکتر باشد."
+            echo "::error::GitHub Secret VNC_PASSWORD is missing."
             exit 1
           fi
 
-      - name: Pull Chromium image and patch noVNC F12 button
+          if [[ ${#VNC_PASSWORD} -gt 8 ]]; then
+            echo "::error::VNC_PASSWORD must be 8 characters or fewer."
+            exit 1
+          fi
+
+          echo "VNC password validation successful."
+
+      # =====================================================
+      # 2. Download and patch noVNC
+      # =====================================================
+
+      - name: Build Chromium image with F12 button
         shell: bash
         run: |
           set -euo pipefail
@@ -42,13 +57,16 @@ jobs:
           BUILD_DIR="$RUNNER_TEMP/chromium-f12"
           mkdir -p "$BUILD_DIR"
 
-          # Read the real noVNC page from the upstream image.
-          docker create --name chromium-base jlesage/chromium:latest >/dev/null
-          docker cp chromium-base:/opt/noVNC/index.html "$BUILD_DIR/index.html"
-          docker rm chromium-base >/dev/null
+          docker create \
+            --name chromium-base \
+            jlesage/chromium:latest
 
-          # Add a button inside noVNC Settings. It sends F12 through noVNC's
-          # actual RFB connection to the remote Chromium window.
+          docker cp \
+            chromium-base:/opt/noVNC/index.html \
+            "$BUILD_DIR/index.html"
+
+          docker rm chromium-base
+
           python3 - "$BUILD_DIR/index.html" <<'PY'
           from pathlib import Path
           import re
@@ -57,58 +75,102 @@ jobs:
           path = Path(sys.argv[1])
           html = path.read_text(encoding="utf-8")
 
-          marker = "UI.rfb.sendKey(0xFFC9, \"F12\");"
-          if marker in html:
-              raise SystemExit("F12 patch is already present; refusing to inject it twice.")
+          marker = 'noVNC_devtools_f12_button'
 
-          pattern = re.compile(r"(?m)^(\s*)UI\.start\(\);\s*$")
+          if marker in html:
+              raise SystemExit("F12 patch already exists.")
+
+          pattern = re.compile(
+              r"(?m)^(\s*)UI\.start\(\);\s*$"
+          )
+
           match = pattern.search(html)
+
           if not match:
-              raise SystemExit("Could not find the expected UI.start() line in /opt/noVNC/index.html")
+              raise SystemExit(
+                  "Could not find UI.start() in noVNC index.html"
+              )
 
           indent = match.group(1)
-          replacement = '''UI.start().then(() => {
-              const settings = document.getElementById("settingsCollapse");
-              if (!settings || document.getElementById("noVNC_devtools_f12_button")) return;
+
+          replacement = r'''
+          UI.start().then(() => {
+
+              const settings =
+                  document.getElementById("settingsCollapse");
+
+              if (
+                  !settings ||
+                  document.getElementById("noVNC_devtools_f12_button")
+              ) return;
 
               const wrap = document.createElement("div");
               wrap.className = "mt-3";
 
               const button = document.createElement("button");
+
               button.id = "noVNC_devtools_f12_button";
               button.type = "button";
               button.className = "btn btn-outline-primary btn-sm w-100";
-              button.textContent = "DevTools  (F12)";
-              button.title = "Send F12 to the remote Chromium window. Press again to close DevTools.";
+              button.textContent = "DevTools (F12)";
+
+              button.title =
+                  "Send F12 to remote Chromium.";
 
               const hint = document.createElement("div");
+
               hint.className = "form-text mt-1";
-              hint.textContent = "برای باز کردن یا بستن DevTools، این دکمه را بزن.";
+              hint.textContent =
+                  "برای باز کردن یا بستن DevTools دکمه را بزن.";
 
               button.addEventListener("click", () => {
+
                   if (!UI.rfb || !UI.connected) {
-                      hint.textContent = "اتصال VNC هنوز برقرار نشده است.";
+                      hint.textContent =
+                          "اتصال VNC برقرار نیست.";
                       return;
                   }
+
                   try {
+
                       UI.rfb.sendKey(0xFFC9, "F12");
-                      hint.textContent = "کلید F12 ارسال شد. برای بستن DevTools دوباره همین دکمه را بزن.";
+
+                      hint.textContent =
+                          "F12 ارسال شد. برای بستن دوباره بزن.";
+
                   } catch (error) {
-                      console.error("Could not send F12 to Chromium:", error);
-                      hint.textContent = "ارسال F12 ناموفق بود؛ اتصال VNC را بررسی کن.";
+
+                      console.error(error);
+
+                      hint.textContent =
+                          "ارسال F12 ناموفق بود.";
                   }
               });
 
               wrap.appendChild(button);
               wrap.appendChild(hint);
-              settings.appendChild(wrap);
-          }).catch((error) => console.error("noVNC initialization failed:", error));'''
 
-          # Keep the indentation of the surrounding module script.
-          replacement = "\n".join(indent + line if line else line for line in replacement.splitlines())
-          html = html[:match.start()] + replacement + html[match.end():]
+              settings.appendChild(wrap);
+
+          }).catch(error => {
+              console.error("noVNC initialization failed:", error);
+          });
+          '''
+
+          replacement = "\n".join(
+              indent + line if line else ""
+              for line in replacement.strip("\n").splitlines()
+          )
+
+          html = (
+              html[:match.start()]
+              + replacement
+              + html[match.end():]
+          )
+
           path.write_text(html, encoding="utf-8")
-          print("Patched noVNC Settings with a working remote F12 toggle button.")
+
+          print("F12 button successfully injected.")
           PY
 
           test -s "$BUILD_DIR/index.html"
@@ -118,13 +180,22 @@ jobs:
           COPY index.html /opt/noVNC/index.html
           DOCKERFILE
 
-          docker build --pull -t chromium-f12:local "$BUILD_DIR"
+          docker build \
+            --pull \
+            -t chromium-f12:local \
+            "$BUILD_DIR"
+
+      # =====================================================
+      # 3. Start Chromium
+      # =====================================================
 
       - name: Start Chromium container
         shell: bash
         run: |
           set -euo pipefail
+
           docker rm -f chromium-f12 >/dev/null 2>&1 || true
+
           docker run -d \
             --name chromium-f12 \
             --shm-size=2g \
@@ -134,29 +205,52 @@ jobs:
             --restart unless-stopped \
             chromium-f12:local
 
-          for attempt in $(seq 1 60); do
+          READY=0
+
+          for attempt in $(seq 1 90); do
+
             if [[ "$(docker inspect -f '{{.State.Running}}' chromium-f12 2>/dev/null || true)" == "true" ]]; then
-              if curl --silent --show-error --fail http://127.0.0.1:5800/ >/dev/null 2>&1; then
-                echo "Chromium/noVNC is responding on port 5800."
-                exit 0
+
+              if curl -fsS http://127.0.0.1:5800/ >/dev/null 2>&1; then
+                READY=1
+                break
               fi
+
             fi
+
             sleep 2
           done
 
-          echo "Chromium/noVNC did not become ready. Recent container logs:"
-          docker logs --tail 100 chromium-f12 || true
-          exit 1
+          if [[ "$READY" != "1" ]]; then
+            echo "::error::Chromium failed to start."
+
+            docker logs --tail 150 chromium-f12 || true
+
+            exit 1
+          fi
+
+          echo "Chromium and noVNC are ready."
+
+      # =====================================================
+      # 4. Install Cloudflare
+      # =====================================================
 
       - name: Install cloudflared
         shell: bash
         run: |
           set -euo pipefail
+
           curl -fsSL \
             https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb \
             -o "$RUNNER_TEMP/cloudflared.deb"
+
           sudo dpkg -i "$RUNNER_TEMP/cloudflared.deb"
+
           cloudflared --version
+
+      # =====================================================
+      # 5. Start public tunnel
+      # =====================================================
 
       - name: Open Cloudflare Tunnel and keep session alive
         shell: bash
@@ -164,33 +258,52 @@ jobs:
           set -euo pipefail
 
           TUNNEL_LOG="$RUNNER_TEMP/cloudflared.log"
-          cloudflared tunnel --no-autoupdate --url http://127.0.0.1:5800 >"$TUNNEL_LOG" 2>&1 &
+
+          cloudflared tunnel \
+            --no-autoupdate \
+            --url http://127.0.0.1:5800 \
+            > "$TUNNEL_LOG" 2>&1 &
+
           TUNNEL_PID=$!
 
           cleanup() {
             kill "$TUNNEL_PID" 2>/dev/null || true
             docker rm -f chromium-f12 >/dev/null 2>&1 || true
           }
+
           trap cleanup EXIT
 
           TUNNEL_URL=""
-          for attempt in $(seq 1 60); do
+
+          for attempt in $(seq 1 90); do
+
             if ! kill -0 "$TUNNEL_PID" 2>/dev/null; then
-              echo "cloudflared stopped unexpectedly. Log:"
+
+              echo "Cloudflare tunnel stopped."
+
               cat "$TUNNEL_LOG" || true
+
               exit 1
             fi
 
-            TUNNEL_URL="$(grep -Eo 'https://[A-Za-z0-9-]+\.trycloudflare\.com' "$TUNNEL_LOG" | head -n 1 || true)"
+            TUNNEL_URL="$(
+              grep -Eo 'https://[A-Za-z0-9-]+\.trycloudflare\.com' \
+              "$TUNNEL_LOG" | head -n 1 || true
+            )"
+
             if [[ -n "$TUNNEL_URL" ]]; then
               break
             fi
+
             sleep 2
           done
 
           if [[ -z "$TUNNEL_URL" ]]; then
-            echo "Could not obtain a trycloudflare.com URL. cloudflared log:"
+
+            echo "Cloudflare URL was not obtained."
+
             cat "$TUNNEL_LOG" || true
+
             exit 1
           fi
 
@@ -199,19 +312,29 @@ jobs:
             echo
             echo "**URL:** $TUNNEL_URL"
             echo
-            echo "**VNC password:** GitHub Secret `VNC_PASSWORD` (not printed here)."
+            echo "**Password:** GitHub Secret VNC_PASSWORD"
             echo
-            echo "Open the noVNC side panel → Settings → **DevTools (F12)**. Press the button again to close DevTools."
+            echo "Open noVNC Settings and press DevTools (F12)."
           } >> "$GITHUB_STEP_SUMMARY"
 
           echo "::notice title=noVNC URL::$TUNNEL_URL"
-          echo "Tunnel is active. Workflow remains running for up to 6 hours."
+
+          echo "Tunnel is active."
+          echo "Workflow remains running for up to 6 hours."
 
           while kill -0 "$TUNNEL_PID" 2>/dev/null; do
+
             if [[ "$(docker inspect -f '{{.State.Running}}' chromium-f12 2>/dev/null || true)" != "true" ]]; then
-              echo "Chromium container stopped. Recent logs:"
+
+              echo "Chromium container stopped."
+
               docker logs --tail 100 chromium-f12 || true
+
               exit 1
             fi
+
             sleep 15
           done
+
+          echo "Cloudflare tunnel process exited."
+          exit 1
